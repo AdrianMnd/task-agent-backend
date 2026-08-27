@@ -2,6 +2,7 @@ import { GoogleGenAI, type Content, type Part, type FunctionDeclaration } from '
 import dotenv from 'dotenv';
 import { taskToolDefinitions, executeTaskTool } from '../tools/taskTools.js';
 import { githubToolDefinitions, executeGithubTool } from '../tools/githubTools.js';
+import { emailToolDefinitions, executeEmailTool } from '../tools/emailTools.js';
 import type { ChatMessage } from '../types.js';
 
 dotenv.config();
@@ -13,8 +14,9 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const MODEL = 'gemini-3.6-flash';
 
 const SYSTEM_INSTRUCTION = `Eres un asistente de gestion de tareas. Tienes acceso a herramientas
-para crear, listar, completar y priorizar tareas, y para consultar PRs abiertos en repositorios
-de GitHub (necesitas que el usuario indique el repo en formato owner/repo). Usa las herramientas
+para crear, listar, completar y priorizar tareas, para consultar PRs abiertos en repositorios
+de GitHub (necesitas que el usuario indique el repo en formato owner/repo), y para enviar un
+recordatorio por email con las tareas pendientes cuando el usuario lo pida. Usa las herramientas
 cuando el usuario lo pida o cuando ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -38,8 +40,9 @@ function toGeminiSchema(schema: any): any {
   return converted;
 }
 
-const allToolDefinitions = [...taskToolDefinitions, ...githubToolDefinitions];
+const allToolDefinitions = [...taskToolDefinitions, ...githubToolDefinitions, ...emailToolDefinitions];
 const githubToolNames = new Set<string>(githubToolDefinitions.map((t) => t.name));
+const emailToolNames = new Set<string>(emailToolDefinitions.map((t) => t.name));
 
 const functionDeclarations = allToolDefinitions.map((tool) => ({
   name: tool.name,
@@ -48,7 +51,9 @@ const functionDeclarations = allToolDefinitions.map((tool) => ({
 })) as unknown as FunctionDeclaration[];
 
 function executeTool(name: string, args: any): Promise<unknown> {
-  return githubToolNames.has(name) ? executeGithubTool(name, args) : executeTaskTool(name, args);
+  if (githubToolNames.has(name)) return executeGithubTool(name, args);
+  if (emailToolNames.has(name)) return executeEmailTool(name, args);
+  return executeTaskTool(name, args);
 }
 
 // Bucle del agente (patron ReAct simplificado), version Gemini:
