@@ -16,8 +16,11 @@ const MODEL = 'gemini-3.6-flash';
 const SYSTEM_INSTRUCTION = `Eres un asistente de gestion de tareas. Tienes acceso a herramientas
 para crear, listar, completar y priorizar tareas, para consultar PRs abiertos en repositorios
 de GitHub (necesitas que el usuario indique el repo en formato owner/repo), y para enviar un
-recordatorio por email con las tareas pendientes cuando el usuario lo pida. Usa las herramientas
-cuando el usuario lo pida o cuando ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
+recordatorio por email con las tareas pendientes cuando el usuario lo pida. Si el usuario pide
+que el recordatorio incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
+primero la herramienta correspondiente y pasa un resumen breve en HTML simple como
+"additional_notes" al llamar a send_reminder_email. Usa las herramientas cuando el usuario lo
+pida o cuando ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
 
 const MAX_TOOL_ITERATIONS = 5;
 
