@@ -53,7 +53,17 @@ function formatTaskListHtml(tasks: Task[]): string {
   return `<ul style="padding-left:20px;line-height:1.6">${items}</ul>`;
 }
 
-export async function executeEmailTool(name: string, input: any): Promise<unknown> {
+interface ReminderOptions {
+  onlyUrgent: boolean;
+  additionalNotes?: string;
+  // Si es true y no hay tareas que reportar, no se envia ningun email.
+  // Pensado para el script automatico: no tiene sentido un email diario diciendo "nada urgente".
+  skipIfEmpty?: boolean;
+}
+
+type ReminderResult = { sent: boolean; task_count: number; email_id?: string } | { error: string };
+
+export async function sendTaskReminderEmail(options: ReminderOptions): Promise<ReminderResult> {
   if (!process.env.RESEND_API_KEY) {
     return { error: 'RESEND_API_KEY no configurado en .env' };
   }
@@ -61,36 +71,45 @@ export async function executeEmailTool(name: string, input: any): Promise<unknow
     return { error: 'REMINDER_EMAIL no configurado en .env' };
   }
 
+  const query = options.onlyUrgent
+    ? `SELECT * FROM tasks WHERE completed = false AND due_date IS NOT NULL AND due_date <= now() + interval '3 days' ORDER BY due_date ASC`
+    : `SELECT * FROM tasks WHERE completed = false ORDER BY due_date ASC NULLS LAST`;
+  const { rows } = await pool.query<Task>(query);
+
+  if (options.skipIfEmpty && rows.length === 0) {
+    return { sent: false, task_count: 0 };
+  }
+
+  const extraSection = options.additionalNotes
+    ? `<h3 style="margin-top:24px">Otros pendientes</h3>${options.additionalNotes}`
+    : '';
+
+  const html = `
+    <h2>Tus tareas</h2>
+    ${formatTaskListHtml(rows)}
+    ${extraSection}
+  `;
+
+  const { data, error } = await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: REMINDER_EMAIL,
+    subject: options.onlyUrgent ? 'Tareas urgentes' : 'Resumen de tareas pendientes',
+    html
+  });
+
+  if (error) {
+    return { error: `Resend error: ${error.message}` };
+  }
+  return { sent: true, task_count: rows.length, email_id: data?.id };
+}
+
+export async function executeEmailTool(name: string, input: any): Promise<unknown> {
   switch (name) {
-    case 'send_reminder_email': {
-      const onlyUrgent = Boolean(input?.only_urgent);
-      const query = onlyUrgent
-        ? `SELECT * FROM tasks WHERE completed = false AND due_date IS NOT NULL AND due_date <= now() + interval '3 days' ORDER BY due_date ASC`
-        : `SELECT * FROM tasks WHERE completed = false ORDER BY due_date ASC NULLS LAST`;
-      const { rows } = await pool.query<Task>(query);
-
-      const extraSection = input?.additional_notes
-        ? `<h3 style="margin-top:24px">Otros pendientes</h3>${input.additional_notes}`
-        : '';
-
-      const html = `
-        <h2>Tus tareas</h2>
-        ${formatTaskListHtml(rows)}
-        ${extraSection}
-      `;
-
-      const { data, error } = await resend.emails.send({
-        from: FROM_ADDRESS,
-        to: REMINDER_EMAIL,
-        subject: onlyUrgent ? 'Tareas urgentes' : 'Resumen de tareas pendientes',
-        html
+    case 'send_reminder_email':
+      return sendTaskReminderEmail({
+        onlyUrgent: Boolean(input?.only_urgent),
+        additionalNotes: input?.additional_notes
       });
-
-      if (error) {
-        return { error: `Resend error: ${error.message}` };
-      }
-      return { sent: true, task_count: rows.length, email_id: data?.id };
-    }
     default:
       return { error: `Herramienta de email desconocida: ${name}` };
   }
