@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { chatRouter } from './routes/chat.js';
 import { tasksRouter } from './routes/tasks.js';
+import { remindersRouter } from './routes/reminders.js';
 
 dotenv.config();
 
@@ -11,6 +12,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api', chatRouter);
 app.use('/api', tasksRouter);
+app.use('/api', remindersRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
