@@ -12,15 +12,25 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // gemini-2.5-flash fue retirado para cuentas nuevas; gemini-3.6-flash es el modelo
 // estable recomendado actualmente (ver ai.google.dev/gemini-api/docs/changelog).
 const MODEL = 'gemini-3.6-flash';
+function buildSystemInstruction(): string {
+  const today = new Date().toLocaleDateString('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
 
-const SYSTEM_INSTRUCTION = `Eres un asistente de gestion de tareas. Tienes acceso a herramientas
+  return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
 para crear, listar, completar y priorizar tareas, para consultar PRs abiertos en repositorios
 de GitHub (necesitas que el usuario indique el repo en formato owner/repo), y para enviar un
 recordatorio por email con las tareas pendientes cuando el usuario lo pida. Si el usuario pide
 que el recordatorio incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
 primero la herramienta correspondiente y pasa un resumen breve en HTML simple como
-"additional_notes" al llamar a send_reminder_email. Usa las herramientas cuando el usuario lo
-pida o cuando ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
+"additional_notes" al llamar a send_reminder_email. Cuando el usuario mencione fechas relativas
+como "mañana", "la semana que viene" o "el viernes", calcula la fecha exacta en formato YYYY-MM-DD
+usando la fecha de hoy como referencia. Usa las herramientas cuando el usuario lo pida o cuando
+ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
+}
 
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -76,7 +86,7 @@ export async function runAgent(history: ChatMessage[]): Promise<string> {
       model: MODEL,
       contents,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: buildSystemInstruction(),
         tools: [{ functionDeclarations }]
       }
     });
