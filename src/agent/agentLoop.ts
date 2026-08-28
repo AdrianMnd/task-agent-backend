@@ -26,10 +26,12 @@ function buildSystemInstruction(): string {
     return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
 para crear, listar, completar, actualizar, eliminar y priorizar tareas, para consultar PRs abiertos
 en repositorios de GitHub (necesitas que el usuario indique el repo en formato owner/repo), y para
-enviar un recordatorio por email con las tareas pendientes cuando el usuario lo pida. Antes de
-eliminar una tarea, si hay ambiguedad sobre cual es (por ejemplo el usuario la describe mal en vez
-de dar su id), consulta list_tasks primero para confirmar cual es antes de borrarla. Si el usuario pide
-que el recordatorio incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
+enviar un recordatorio por email con las tareas pendientes cuando el usuario lo pida. Borrar una
+tarea es irreversible: NUNCA llames a delete_task en el mismo turno en que el usuario pide borrar
+algo. Primero identifica la tarea (usando list_tasks si hace falta) y responde con texto normal
+preguntando "¿Confirmas que quieres borrar la tarea '<titulo>'?". Solo llama a delete_task cuando
+el usuario confirme explicitamente en un mensaje posterior. Si el usuario pide que el recordatorio
+incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
 primero la herramienta correspondiente y pasa un resumen breve en HTML simple como
 "additional_notes" al llamar a send_reminder_email. Cuando el usuario mencione fechas relativas
 como "mañana", "la semana que viene" o "el viernes", calcula la fecha exacta en formato YYYY-MM-DD
