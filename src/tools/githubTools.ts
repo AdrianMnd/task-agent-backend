@@ -41,6 +41,24 @@ export const githubToolDefinitions = [
       },
       required: ['repo', 'pr_number', 'body']
     }
+  },
+  {
+    name: 'open_github_pr',
+    description:
+      'Abre un Pull Request en GitHub desde una rama con cambios hacia una rama base (normalmente ' +
+      'master). NO fusiona ni cierra nada, solo lo crea para revision manual. Usa esto solo ' +
+      'despues de que el usuario confirme explicitamente el titulo, la rama origen y la rama destino.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repositorio en formato owner/repo' },
+        head: { type: 'string', description: 'Rama con los cambios, ej. dev' },
+        base: { type: 'string', description: 'Rama destino, ej. master. Si no se indica, usa master' },
+        title: { type: 'string', description: 'Titulo del PR' },
+        body: { type: 'string', description: 'Descripcion del PR, opcional' }
+      },
+      required: ['repo', 'head', 'title']
+    }
   }
 ] as const;
 
@@ -114,6 +132,28 @@ export async function executeGithubTool(name: string, input: any): Promise<unkno
 
       const comment = (await res.json()) as any;
       return { commented: true, url: comment.html_url };
+    }
+    case 'open_github_pr': {
+      const { repo, head, title } = input;
+      const base = input.base || 'master';
+
+      const res = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title, head, base, body: input.body ?? '' })
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}) as any);
+        return { error: `GitHub API error: ${res.status} ${res.statusText}`, details: errBody.message };
+      }
+
+      const pr = (await res.json()) as any;
+      return { opened: true, number: pr.number, url: pr.html_url };
     }
     default:
       return { error: `Herramienta de GitHub desconocida: ${name}` };
