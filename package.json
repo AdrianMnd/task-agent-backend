@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "migrate": "tsx src/migrations/run.ts"
+    "migrate": "tsx src/migrations/run.ts",
+    "check-reminders": "tsx src/scripts/checkReminders.ts"
   },
   "dependencies": {
     "@google/genai": "^2.19.0",
