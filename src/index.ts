@@ -8,7 +8,7 @@ import { remindersRouter } from './routes/reminders.js';
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.FRONTEND_URL || true }));
 app.use(express.json());
 app.use('/api', chatRouter);
 app.use('/api', tasksRouter);
