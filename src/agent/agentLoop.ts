@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { taskToolDefinitions, executeTaskTool } from '../tools/taskTools.js';
 import { githubToolDefinitions, executeGithubTool } from '../tools/githubTools.js';
 import { emailToolDefinitions, executeEmailTool } from '../tools/emailTools.js';
+import { settingsToolDefinitions, executeSettingsTool } from '../tools/settingsTools.js';
 import type { ChatMessage } from '../types.js';
 
 dotenv.config();
@@ -26,7 +27,9 @@ function buildSystemInstruction(): string {
     return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
 para crear, listar, completar, actualizar, eliminar y priorizar tareas, para consultar PRs abiertos
 en repositorios de GitHub (necesitas que el usuario indique el repo en formato owner/repo), y para
-enviar un recordatorio por email con las tareas pendientes cuando el usuario lo pida. Borrar una
+enviar un recordatorio por email con las tareas pendientes cuando el usuario lo pida, y para
+cambiar con cuantos dias de antelacion se consideran urgentes las tareas (set_reminder_window),
+tanto para el recordatorio automatico diario como para el que se pide por chat. Borrar una
 tarea es irreversible: NUNCA llames a delete_task en el mismo turno en que el usuario pide borrar
 algo. Primero identifica la tarea (usando list_tasks si hace falta) y responde con texto normal
 preguntando "¿Confirmas que quieres borrar la tarea '<titulo>'?". Solo llama a delete_task cuando
@@ -58,9 +61,17 @@ function toGeminiSchema(schema: any): any {
   return converted;
 }
 
-const allToolDefinitions = [...taskToolDefinitions, ...githubToolDefinitions, ...emailToolDefinitions];
+const allToolDefinitions = [
+  ...taskToolDefinitions,
+  ...githubToolDefinitions,
+  ...emailToolDefinitions,
+  ...settingsToolDefinitions
+];
 const githubToolNames = new Set<string>(githubToolDefinitions.map((t) => t.name));
 const emailToolNames = new Set<string>(emailToolDefinitions.map((t) => t.name));
+const settingsToolNames = new Set<string>(settingsToolDefinitions.map((t) => t.name));
+
+
 
 const functionDeclarations = allToolDefinitions.map((tool) => ({
   name: tool.name,
@@ -71,6 +82,7 @@ const functionDeclarations = allToolDefinitions.map((tool) => ({
 function executeTool(name: string, args: any, userId: number): Promise<unknown> {
   if (githubToolNames.has(name)) return executeGithubTool(name, args);
   if (emailToolNames.has(name)) return executeEmailTool(name, args, userId);
+  if (settingsToolNames.has(name)) return executeSettingsTool(name, args, userId);
   return executeTaskTool(name, args, userId);
 }
 

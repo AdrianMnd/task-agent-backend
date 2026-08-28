@@ -72,10 +72,22 @@ export async function sendTaskReminderEmail(options: ReminderOptions): Promise<R
     return { error: 'REMINDER_EMAIL no configurado en .env' };
   }
 
+  let daysAhead = 3;
+  if (options.onlyUrgent) {
+    const { rows } = await pool.query<{ reminder_days_ahead: number }>(
+      `SELECT reminder_days_ahead FROM users WHERE id = $1`,
+      [options.userId]
+    );
+    daysAhead = rows[0]?.reminder_days_ahead ?? 3;
+  }
+
   const query = options.onlyUrgent
-    ? `SELECT * FROM tasks WHERE user_id = $1 AND completed = false AND due_date IS NOT NULL AND due_date <= now() + interval '3 days' ORDER BY due_date ASC`
+    ? `SELECT * FROM tasks
+       WHERE user_id = $1 AND completed = false AND due_date IS NOT NULL
+       AND due_date <= now() + make_interval(days => $2)
+       ORDER BY due_date ASC`
     : `SELECT * FROM tasks WHERE user_id = $1 AND completed = false ORDER BY due_date ASC NULLS LAST`;
-  const { rows } = await pool.query<Task>(query, [options.userId]);
+  const { rows } = await pool.query<Task>(query, options.onlyUrgent ? [options.userId, daysAhead] : [options.userId]);
 
   if (options.skipIfEmpty && rows.length === 0) {
     return { sent: false, task_count: 0 };
