@@ -39,6 +39,31 @@ export const taskToolDefinitions = [
     }
   },
   {
+    name: 'update_task',
+    description: 'Actualiza el titulo, descripcion o fecha limite de una tarea existente. Solo incluye los campos que cambian.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Id de la tarea a modificar' },
+        title: { type: 'string', description: 'Nuevo titulo, opcional' },
+        description: { type: 'string', description: 'Nueva descripcion, opcional' },
+        due_date: { type: 'string', description: 'Nueva fecha limite en formato YYYY-MM-DD, opcional' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'delete_task',
+    description: 'Elimina definitivamente una tarea por su id.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Id de la tarea a eliminar' }
+      },
+      required: ['id']
+    }
+  },
+  {
     name: 'prioritize_tasks',
     description: 'Devuelve las tareas pendientes ordenadas por urgencia (fecha limite mas proxima primero).',
     input_schema: { type: 'object', properties: {} }
@@ -70,6 +95,27 @@ export async function executeTaskTool(name: string, input: any, userId: number):
         [input.id, userId]
       );
       return rows[0] ?? { error: `No existe tarea con id ${input.id}` };
+    }
+    case 'update_task': {
+      const { rows } = await pool.query<Task>(
+        `UPDATE tasks
+         SET title = COALESCE($1, title),
+             description = COALESCE($2, description),
+             due_date = COALESCE($3, due_date)
+         WHERE id = $4 AND user_id = $5
+         RETURNING *`,
+        [input.title ?? null, input.description ?? null, input.due_date ?? null, input.id, userId]
+      );
+      return rows[0] ?? { error: `No existe tarea con id ${input.id}` };
+    }
+    case 'delete_task': {
+      const { rows } = await pool.query<Task>(
+        `DELETE FROM tasks WHERE id = $1 AND user_id = $2 RETURNING id`,
+        [input.id, userId]
+      );
+      return rows[0]
+        ? { deleted: true, id: rows[0].id }
+        : { error: `No existe tarea con id ${input.id}` };
     }
     case 'prioritize_tasks': {
       const { rows } = await pool.query<Task>(
