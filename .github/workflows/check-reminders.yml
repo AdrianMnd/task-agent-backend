@@ -1,0 +1,21 @@
+name: Reminder diario
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 8:00 UTC, siempre en UTC (no ajusta horario de verano)
+  workflow_dispatch: {}    # permite lanzarlo a mano desde la pestaña Actions, para probar
+
+jobs:
+  check-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run check-reminders
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          REMINDER_EMAIL: ${{ secrets.REMINDER_EMAIL }}
