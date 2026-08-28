@@ -54,6 +54,7 @@ function formatTaskListHtml(tasks: Task[]): string {
 }
 
 interface ReminderOptions {
+  userId: number;
   onlyUrgent: boolean;
   additionalNotes?: string;
   // Si es true y no hay tareas que reportar, no se envia ningun email.
@@ -72,9 +73,9 @@ export async function sendTaskReminderEmail(options: ReminderOptions): Promise<R
   }
 
   const query = options.onlyUrgent
-    ? `SELECT * FROM tasks WHERE completed = false AND due_date IS NOT NULL AND due_date <= now() + interval '3 days' ORDER BY due_date ASC`
-    : `SELECT * FROM tasks WHERE completed = false ORDER BY due_date ASC NULLS LAST`;
-  const { rows } = await pool.query<Task>(query);
+    ? `SELECT * FROM tasks WHERE user_id = $1 AND completed = false AND due_date IS NOT NULL AND due_date <= now() + interval '3 days' ORDER BY due_date ASC`
+    : `SELECT * FROM tasks WHERE user_id = $1 AND completed = false ORDER BY due_date ASC NULLS LAST`;
+  const { rows } = await pool.query<Task>(query, [options.userId]);
 
   if (options.skipIfEmpty && rows.length === 0) {
     return { sent: false, task_count: 0 };
@@ -103,10 +104,11 @@ export async function sendTaskReminderEmail(options: ReminderOptions): Promise<R
   return { sent: true, task_count: rows.length, email_id: data?.id };
 }
 
-export async function executeEmailTool(name: string, input: any): Promise<unknown> {
+export async function executeEmailTool(name: string, input: any, userId: number): Promise<unknown> {
   switch (name) {
     case 'send_reminder_email':
       return sendTaskReminderEmail({
+        userId,
         onlyUrgent: Boolean(input?.only_urgent),
         additionalNotes: input?.additional_notes
       });

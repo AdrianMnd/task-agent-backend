@@ -5,12 +5,30 @@ Backend del agente de tareas conversacional. Fase 1: nucleo del agente + CRUD de
 ## Stack
 - Node.js + TypeScript + Express
 - Neon Postgres (via `pg`)
-- Google Gemini SDK (`@google/genai`, modelo `gemini-2.5-flash`) para el bucle del agente
+- Google Gemini SDK (`@google/genai`, modelo `gemini-3.6-flash`) para el bucle del agente
   con function calling. Elegido porque tiene tier gratuito y porque reutiliza credito
   existente de otro proyecto (BoardGame Tutor) sin coste adicional.
   Cambiar de proveedor es sencillo: `taskTools.ts` no depende de ningun SDK concreto,
   solo `agentLoop.ts` sabe hablar con Gemini (incluye un pequeño adaptador de esquema,
   `toGeminiSchema`, porque Gemini espera los tipos en mayusculas).
+
+  Nota: Google renueva su catalogo de modelos con frecuencia. Si en el futuro `gemini-3.6-flash`
+  deja de estar disponible, el error de la API suele indicar directamente el modelo de
+  reemplazo recomendado.
+
+  Nota 2: el bucle procesa una unica llamada a herramienta por turno del modelo (aunque pida
+  varias a la vez), por una inconsistencia conocida de Gemini 3.x generando el `thought_signature`
+  en llamadas paralelas. Si el modelo pide varias herramientas seguidas, las ejecuta una a una
+  en iteraciones sucesivas del bucle en vez de en paralelo.
+
+  Nota 3: si aun asi el modelo no genera el `thought_signature` (pasa con cierta frecuencia,
+  es un fallo conocido del lado de Google), se rellena con el valor "comodin" oficial
+  `skip_thought_signature_validator` para que la API no rechace la peticion.
+
+  Nota 4: el paquete `@google/genai` cambia de version con mucha frecuencia y las versiones
+  antiguas (0.x) no soportan bien `thoughtSignature`. Si `npm install` te deja una version
+  muy anterior a la que indica `package.json`, ejecuta `npm update @google/genai` o borra
+  `package-lock.json` y reinstala.
 
 ## Como se organiza el codigo
 
