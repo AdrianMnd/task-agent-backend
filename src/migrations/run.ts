@@ -1,3 +1,5 @@
+// Script de migracion: aplica todos los .sql de esta carpeta, en orden alfabetico.
+// Uso: npm run migrate
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

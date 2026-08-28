@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { taskToolDefinitions, executeTaskTool } from '../tools/taskTools.js';
 import { githubToolDefinitions, executeGithubTool } from '../tools/githubTools.js';
 import { emailToolDefinitions, executeEmailTool } from '../tools/emailTools.js';
+import { settingsToolDefinitions, executeSettingsTool } from '../tools/settingsTools.js';
 import type { ChatMessage } from '../types.js';
 
 dotenv.config();
@@ -12,6 +13,9 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // gemini-2.5-flash fue retirado para cuentas nuevas; gemini-3.6-flash es el modelo
 // estable recomendado actualmente (ver ai.google.dev/gemini-api/docs/changelog).
 const MODEL = 'gemini-3.6-flash';
+
+const MAX_TOOL_ITERATIONS = 5;
+
 function buildSystemInstruction(): string {
   const today = new Date().toLocaleDateString('es-ES', {
     weekday: 'long',
@@ -20,19 +24,29 @@ function buildSystemInstruction(): string {
     day: 'numeric'
   });
 
-  return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
-para crear, listar, completar y priorizar tareas, para consultar PRs abiertos en repositorios
-de GitHub (necesitas que el usuario indique el repo en formato owner/repo), y para enviar un
-recordatorio por email con las tareas pendientes cuando el usuario lo pida. Si el usuario pide
-que el recordatorio incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
+    return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
+para crear, listar, completar, actualizar, eliminar y priorizar tareas, para consultar PRs e
+issues abiertos en repositorios de GitHub (necesitas que el usuario indique el repo en formato
+owner/repo), para comentar en un PR y para abrir un PR (NUNCA para cerrarlo ni fusionarlo, esas
+acciones las hace el usuario a mano), para enviar un recordatorio por email con las tareas
+pendientes cuando el usuario lo pida, y para cambiar con cuantos dias de antelacion se consideran
+urgentes las tareas (set_reminder_window), tanto para el recordatorio automatico diario como para
+el que se pide por chat. Comentar en un PR o abrir un PR son acciones visibles en un repositorio
+real: NUNCA llames a comment_on_pr ni a open_github_pr en el mismo turno en que el usuario lo pida.
+Primero responde con el detalle exacto de lo que vas a hacer (el texto del comentario, o el
+titulo/rama origen/rama destino del PR) y pregunta si lo confirma. Solo llama a la herramienta
+cuando el usuario confirme explicitamente en un mensaje posterior. Borrar una
+tarea es irreversible: NUNCA llames a delete_task en el mismo turno en que el usuario pide borrar
+algo. Primero identifica la tarea (usando list_tasks si hace falta) y responde con texto normal
+preguntando "¿Confirmas que quieres borrar la tarea '<titulo>'?". Solo llama a delete_task cuando
+el usuario confirme explicitamente en un mensaje posterior. Si el usuario pide que el recordatorio
+incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
 primero la herramienta correspondiente y pasa un resumen breve en HTML simple como
 "additional_notes" al llamar a send_reminder_email. Cuando el usuario mencione fechas relativas
 como "mañana", "la semana que viene" o "el viernes", calcula la fecha exacta en formato YYYY-MM-DD
 usando la fecha de hoy como referencia. Usa las herramientas cuando el usuario lo pida o cuando
 ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
 }
-
-const MAX_TOOL_ITERATIONS = 5;
 
 // taskTools.ts define los esquemas en JSON Schema "de libro" (type: 'string', 'object'...),
 // que es el estandar que usan la mayoria de proveedores (Anthropic, OpenAI). El SDK de Gemini
@@ -53,9 +67,17 @@ function toGeminiSchema(schema: any): any {
   return converted;
 }
 
-const allToolDefinitions = [...taskToolDefinitions, ...githubToolDefinitions, ...emailToolDefinitions];
+const allToolDefinitions = [
+  ...taskToolDefinitions,
+  ...githubToolDefinitions,
+  ...emailToolDefinitions,
+  ...settingsToolDefinitions
+];
 const githubToolNames = new Set<string>(githubToolDefinitions.map((t) => t.name));
 const emailToolNames = new Set<string>(emailToolDefinitions.map((t) => t.name));
+const settingsToolNames = new Set<string>(settingsToolDefinitions.map((t) => t.name));
+
+
 
 const functionDeclarations = allToolDefinitions.map((tool) => ({
   name: tool.name,
@@ -63,10 +85,11 @@ const functionDeclarations = allToolDefinitions.map((tool) => ({
   parameters: toGeminiSchema(tool.input_schema)
 })) as unknown as FunctionDeclaration[];
 
-function executeTool(name: string, args: any): Promise<unknown> {
+function executeTool(name: string, args: any, userId: number): Promise<unknown> {
   if (githubToolNames.has(name)) return executeGithubTool(name, args);
-  if (emailToolNames.has(name)) return executeEmailTool(name, args);
-  return executeTaskTool(name, args);
+  if (emailToolNames.has(name)) return executeEmailTool(name, args, userId);
+  if (settingsToolNames.has(name)) return executeSettingsTool(name, args, userId);
+  return executeTaskTool(name, args, userId);
 }
 
 // Bucle del agente (patron ReAct simplificado), version Gemini:
@@ -74,7 +97,7 @@ function executeTool(name: string, args: any): Promise<unknown> {
 // 2. Si el modelo devuelve una o mas "functionCall", se ejecutan y se le devuelve
 //    el resultado como "functionResponse".
 // 3. Se repite hasta que el modelo responda solo con texto (o se alcance el limite).
-export async function runAgent(history: ChatMessage[]): Promise<string> {
+export async function runAgent(history: ChatMessage[], userId: number): Promise<string> {
   // Gemini usa role 'model' donde Anthropic/OpenAI usan 'assistant'.
   const contents: Content[] = history.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -105,10 +128,6 @@ export async function runAgent(history: ChatMessage[]): Promise<string> {
     // las demas las volvera a pedir en la siguiente vuelta del bucle.
     const callPart = functionCallParts[0];
 
-    // A veces Gemini 3.x no genera el thought_signature aunque deberia (fallo conocido
-    // del lado de Google). Si falta, usamos el valor "comodin" que la propia documentacion
-    // de Google define para estos casos, en vez de dejar que la peticion falle con 400.
-    // Ver: https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures
     if (!callPart.thoughtSignature) {
       callPart.thoughtSignature = 'skip_thought_signature_validator';
     }
@@ -117,10 +136,8 @@ export async function runAgent(history: ChatMessage[]): Promise<string> {
     contents.push({ role: 'model', parts: keptParts });
 
     const call = callPart.functionCall!;
-    const result = await executeTool(call.name!, call.args ?? {});
+    const result = await executeTool(call.name!, call.args ?? {}, userId);
 
-    // El "id" de la llamada es obligatorio en la respuesta para que Gemini 3.x
-    // pueda relacionarla con la peticion original.
     contents.push({
       role: 'user',
       parts: [{ functionResponse: { id: call.id, name: call.name, response: { result } } }]
