@@ -5,16 +5,18 @@ import { chatRouter } from './routes/chat.js';
 import { tasksRouter } from './routes/tasks.js';
 import { remindersRouter } from './routes/reminders.js';
 import { authRouter } from './routes/auth.js';
+import { transcribeRouter } from './routes/transcribe.js';
 
 dotenv.config();
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL || true }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use('/api', authRouter);
 app.use('/api', chatRouter);
 app.use('/api', tasksRouter);
 app.use('/api', remindersRouter);
+app.use('/api', transcribeRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
