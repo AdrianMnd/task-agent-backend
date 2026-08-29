@@ -21,6 +21,16 @@ chatRouter.get('/messages', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+chatRouter.delete('/messages', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    await pool.query(`DELETE FROM messages WHERE user_id = $1`, [req.userId]);
+    res.json({ cleared: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al limpiar la conversación' });
+  }
+});
+
 chatRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
   try {
     const message: string = req.body.message;

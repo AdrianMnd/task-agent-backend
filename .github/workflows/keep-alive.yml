@@ -1,0 +1,13 @@
+name: Keep-alive backend
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: curl -sf https://task-agent-backend-nplh.onrender.com/health || exit 1
