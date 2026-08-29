@@ -1,9 +1,27 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db.js';
 import { signToken } from '../middleware/auth.js';
+import { sendPasswordResetNotification } from '../tools/emailTools.js';
 
 export const authRouter = Router();
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Prueba de nuevo en unos minutos.' }
+});
+
+const resetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Prueba de nuevo mas tarde.' }
+});
 
 authRouter.post('/auth/register', async (req, res) => {
   try {
@@ -31,7 +49,7 @@ authRouter.post('/auth/register', async (req, res) => {
   }
 });
 
-authRouter.post('/auth/login', async (req, res) => {
+authRouter.post('/auth/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
     const { rows } = await pool.query<{ id: number; email: string; password_hash: string }>(
@@ -50,5 +68,29 @@ authRouter.post('/auth/login', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al iniciar sesión' });
+  }
+});
+
+authRouter.post('/auth/request-reset', resetLimiter, async (req, res) => {
+  try {
+    const { email } = req.body ?? {};
+    if (!email) {
+      res.status(400).json({ error: 'Email es obligatorio' });
+      return;
+    }
+
+    const normalizedEmail = String(email).toLowerCase();
+    const { rows } = await pool.query<{ id: number }>(`SELECT id FROM users WHERE email = $1`, [
+      normalizedEmail
+    ]);
+
+    if (rows.length > 0) {
+      await sendPasswordResetNotification(normalizedEmail);
+    }
+
+    res.json({ requested: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al solicitar el restablecimiento' });
   }
 });

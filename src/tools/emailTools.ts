@@ -116,6 +116,24 @@ export async function sendTaskReminderEmail(options: ReminderOptions): Promise<R
   return { sent: true, task_count: rows.length, email_id: data?.id };
 }
 
+export async function sendPasswordResetNotification(userEmail: string): Promise<void> {
+  if (!process.env.RESEND_API_KEY || !REMINDER_EMAIL) {
+    console.error('No se pudo notificar la solicitud de reset: falta RESEND_API_KEY o REMINDER_EMAIL');
+    return;
+  }
+
+  await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: REMINDER_EMAIL,
+    subject: 'Solicitud de restablecimiento de contraseña',
+    html: `
+      <p>El usuario <strong>${userEmail}</strong> ha solicitado restablecer su contraseña.</p>
+      <p>Ejecuta en el backend: <code>npm run reset-password -- ${userEmail} nueva-contraseña</code></p>
+      <p>Y comunícasela al usuario por otro canal.</p>
+    `
+  });
+}
+
 export async function executeEmailTool(name: string, input: any, userId: number): Promise<unknown> {
   switch (name) {
     case 'send_reminder_email':
