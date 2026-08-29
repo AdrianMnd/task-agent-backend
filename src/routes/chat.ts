@@ -6,7 +6,7 @@ import type { ChatMessage } from '../types.js';
 
 export const chatRouter = Router();
 
-const MAX_HISTORY_MESSAGES = 30;
+const MAX_HISTORY_MESSAGES = 15;
 
 chatRouter.get('/messages', requireAuth, async (req: AuthRequest, res) => {
   try {
@@ -18,6 +18,16 @@ chatRouter.get('/messages', requireAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al obtener el historial' });
+  }
+});
+
+chatRouter.delete('/messages', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    await pool.query(`DELETE FROM messages WHERE user_id = $1`, [req.userId]);
+    res.json({ cleared: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al limpiar la conversación' });
   }
 });
 
@@ -46,17 +56,27 @@ chatRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
       message
     ]);
 
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+
     const fullHistory: ChatMessage[] = [...previous, { role: 'user', content: message }];
-    const reply = await runAgent(fullHistory, req.userId!);
+    const reply = await runAgent(fullHistory, req.userId!, (chunk) => {
+      res.write(chunk);
+    });
 
     await pool.query(`INSERT INTO messages (user_id, role, content) VALUES ($1, 'assistant', $2)`, [
       req.userId,
       reply
     ]);
 
-    res.json({ reply });
+    res.end();
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Error interno del agente' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error interno del agente' });
+    } else {
+      res.end();
+    }
   }
 });
