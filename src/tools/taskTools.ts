@@ -1,8 +1,6 @@
 import { pool } from '../db.js';
 import type { Task } from '../types.js';
 
-// Definiciones de herramientas en formato Anthropic tool-use.
-// El modelo decide cuál llamar y con qué argumentos según la conversación.
 export const taskToolDefinitions = [
   {
     name: 'create_task',
@@ -67,12 +65,50 @@ export const taskToolDefinitions = [
     name: 'prioritize_tasks',
     description: 'Devuelve las tareas pendientes ordenadas por urgencia (fecha limite mas proxima primero).',
     input_schema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'search_tasks',
+    description: 'Busca tareas del usuario cuyo titulo o descripcion contengan un texto.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Texto a buscar en el titulo o la descripcion' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'search_tasks_by_date',
+    description:
+      'Busca tareas del usuario cuya fecha limite cae dentro de un rango. Util para preguntas ' +
+      'como "que tengo esta semana" o "que tengo en marzo" (calcula tu las fechas exactas).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from_date: { type: 'string', description: 'Fecha inicial en formato YYYY-MM-DD, opcional' },
+        to_date: { type: 'string', description: 'Fecha final en formato YYYY-MM-DD, opcional' }
+      }
+    }
+  },
+  {
+    name: 'get_task_stats',
+    description: 'Devuelve un resumen numerico: cuantas tareas pendientes, completadas y vencidas tiene el usuario.',
+    input_schema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'snooze_task',
+    description: 'Aplaza la fecha limite de una tarea un numero de dias desde hoy o desde su fecha actual.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Id de la tarea a aplazar' },
+        days: { type: 'number', description: 'Numero de dias a aplazar, ej. 7 para una semana' }
+      },
+      required: ['id', 'days']
+    }
   }
 ] as const;
 
-// El "userId" NUNCA viene del modelo ni de "input": siempre se lo pasa agentLoop.ts,
-// que a su vez lo recibe del middleware de autenticacion (ver middleware/auth.ts).
-// Las definiciones de herramientas (lo que ve el modelo) no incluyen user_id a proposito.
 export async function executeTaskTool(name: string, input: any, userId: number): Promise<unknown> {
   switch (name) {
     case 'create_task': {
@@ -123,6 +159,66 @@ export async function executeTaskTool(name: string, input: any, userId: number):
         [userId]
       );
       return rows;
+    }
+    case 'search_tasks': {
+      const { rows } = await pool.query<Task>(
+        `SELECT * FROM tasks WHERE user_id = $1 AND (title ILIKE $2 OR description ILIKE $2) ORDER BY created_at DESC`,
+        [userId, `%${input.query}%`]
+      );
+      return rows;
+    }
+    case 'search_tasks_by_date': {
+      const conditions = ['user_id = $1'];
+      const params: any[] = [userId];
+      if (input.from_date) {
+        params.push(input.from_date);
+        conditions.push(`due_date >= $${params.length}`);
+      }
+      if (input.to_date) {
+        params.push(input.to_date);
+        conditions.push(`due_date <= $${params.length}`);
+      }
+      const { rows } = await pool.query<Task>(
+        `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} ORDER BY due_date ASC NULLS LAST`,
+        params
+      );
+      return rows;
+    }
+    case 'get_task_stats': {
+      const { rows } = await pool.query<{ completed: boolean; overdue: boolean; count: string }>(
+        `SELECT
+           completed,
+           (due_date IS NOT NULL AND due_date < CURRENT_DATE AND NOT completed) AS overdue,
+           COUNT(*) AS count
+         FROM tasks
+         WHERE user_id = $1
+         GROUP BY completed, overdue`,
+        [userId]
+      );
+
+      let pending = 0;
+      let completed = 0;
+      let overdue = 0;
+      for (const row of rows) {
+        const count = Number(row.count);
+        if (row.completed) {
+          completed += count;
+        } else {
+          pending += count;
+          if (row.overdue) overdue += count;
+        }
+      }
+      return { pending, completed, overdue };
+    }
+    case 'snooze_task': {
+      const { rows } = await pool.query<Task>(
+        `UPDATE tasks
+         SET due_date = COALESCE(due_date, CURRENT_DATE) + make_interval(days => $1)
+         WHERE id = $2 AND user_id = $3
+         RETURNING *`,
+        [Math.round(input.days), input.id, userId]
+      );
+      return rows[0] ?? { error: `No existe tarea con id ${input.id}` };
     }
     default:
       return { error: `Herramienta desconocida: ${name}` };

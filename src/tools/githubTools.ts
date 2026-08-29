@@ -59,6 +59,36 @@ export const githubToolDefinitions = [
       },
       required: ['repo', 'head', 'title']
     }
+  },
+    {
+    name: 'create_github_issue',
+    description:
+      'Crea un issue en un repositorio de GitHub. Usa esto solo despues de que el usuario ' +
+      'confirme explicitamente el titulo y la descripcion.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repositorio en formato owner/repo' },
+        title: { type: 'string', description: 'Titulo del issue' },
+        body: { type: 'string', description: 'Descripcion del issue, opcional' }
+      },
+      required: ['repo', 'title']
+    }
+  },
+    {
+    name: 'close_github_issue',
+    description:
+      'Cierra un issue de GitHub (no un PR: si el numero indicado pertenece a un PR, esta ' +
+      'herramienta lo rechaza). Usa esto solo despues de que el usuario confirme explicitamente ' +
+      'que quiere cerrar ese issue concreto.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repositorio en formato owner/repo' },
+        issue_number: { type: 'number', description: 'Numero del issue a cerrar' }
+      },
+      required: ['repo', 'issue_number']
+    }
   }
 ] as const;
 
@@ -154,6 +184,59 @@ export async function executeGithubTool(name: string, input: any): Promise<unkno
 
       const pr = (await res.json()) as any;
       return { opened: true, number: pr.number, url: pr.html_url };
+    }
+        case 'create_github_issue': {
+      const { repo, title } = input;
+      const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title, body: input.body ?? '' })
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}) as any);
+        return { error: `GitHub API error: ${res.status} ${res.statusText}`, details: errBody.message };
+      }
+
+      const issue = (await res.json()) as any;
+      return { created: true, number: issue.number, url: issue.html_url };
+    }
+        case 'close_github_issue': {
+      const { repo, issue_number } = input;
+
+      const checkRes = await fetch(`https://api.github.com/repos/${repo}/issues/${issue_number}`, {
+        headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' }
+      });
+
+      if (!checkRes.ok) {
+        return { error: `GitHub API error: ${checkRes.status} ${checkRes.statusText}` };
+      }
+
+      const item = (await checkRes.json()) as any;
+      if (item.pull_request) {
+        return { error: `El numero ${issue_number} es un PR, no un issue. Esta herramienta no cierra PRs.` };
+      }
+
+      const res = await fetch(`https://api.github.com/repos/${repo}/issues/${issue_number}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ state: 'closed' })
+      });
+
+      if (!res.ok) {
+        return { error: `GitHub API error: ${res.status} ${res.statusText}` };
+      }
+
+      const closed = (await res.json()) as any;
+      return { closed: true, number: closed.number, url: closed.html_url };
     }
     default:
       return { error: `Herramienta de GitHub desconocida: ${name}` };
