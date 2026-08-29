@@ -10,9 +10,7 @@ dotenv.config();
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// gemini-2.5-flash fue retirado para cuentas nuevas; gemini-3.6-flash es el modelo
-// estable recomendado actualmente (ver ai.google.dev/gemini-api/docs/changelog).
-const MODEL = 'gemini-3.6-flash';
+const MODEL = 'gemini-3.5-flash-lite';
 
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -100,15 +98,20 @@ function executeTool(name: string, args: any, userId: number): Promise<unknown> 
 // 2. Si el modelo devuelve una o mas "functionCall", se ejecutan y se le devuelve
 //    el resultado como "functionResponse".
 // 3. Se repite hasta que el modelo responda solo con texto (o se alcance el limite).
-export async function runAgent(history: ChatMessage[], userId: number): Promise<string> {
-  // Gemini usa role 'model' donde Anthropic/OpenAI usan 'assistant'.
+export async function runAgent(
+  history: ChatMessage[],
+  userId: number,
+  onChunk?: (text: string) => void
+): Promise<string> {
   const contents: Content[] = history.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }]
   }));
 
+  let fullText = '';
+
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-    const response = await ai.models.generateContent({
+    const stream = await ai.models.generateContentStream({
       model: MODEL,
       contents,
       config: {
@@ -117,25 +120,32 @@ export async function runAgent(history: ChatMessage[], userId: number): Promise<
       }
     });
 
-    const parts: Part[] = response.candidates?.[0]?.content?.parts ?? [];
-    const functionCallParts = parts.filter((p) => p.functionCall);
+    const turnParts: Part[] = [];
 
-    if (functionCallParts.length === 0) {
-      return response.text ?? '';
+    for await (const chunk of stream) {
+      const parts: Part[] = chunk.candidates?.[0]?.content?.parts ?? [];
+      for (const part of parts) {
+        turnParts.push(part);
+        if (part.text) {
+          fullText += part.text;
+          onChunk?.(part.text);
+        }
+      }
     }
 
-    // Los modelos Gemini 3.x a veces no generan el thought_signature correctamente
-    // para la 2a funcion en adelante cuando piden varias herramientas en el mismo turno
-    // (bug conocido del lado de Google, ver ai.google.dev/gemini-api/docs/thought-signatures).
-    // Para evitarlo, procesamos una unica herramienta por turno: si el modelo pidio varias,
-    // las demas las volvera a pedir en la siguiente vuelta del bucle.
+    const functionCallParts = turnParts.filter((p) => p.functionCall);
+
+    if (functionCallParts.length === 0) {
+      return fullText;
+    }
+
     const callPart = functionCallParts[0];
 
     if (!callPart.thoughtSignature) {
       callPart.thoughtSignature = 'skip_thought_signature_validator';
     }
 
-    const keptParts = parts.filter((p) => !p.functionCall || p === callPart);
+    const keptParts = turnParts.filter((p) => !p.functionCall || p === callPart);
     contents.push({ role: 'model', parts: keptParts });
 
     const call = callPart.functionCall!;
@@ -147,5 +157,7 @@ export async function runAgent(history: ChatMessage[], userId: number): Promise<
     });
   }
 
-  return 'No he podido completar la peticion tras varios intentos con herramientas.';
+  const fallback = 'No he podido completar la peticion tras varios intentos con herramientas.';
+  onChunk?.(fallback);
+  return fullText || fallback;
 }
