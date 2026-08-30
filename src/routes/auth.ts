@@ -7,6 +7,8 @@ import { sendPasswordResetNotification } from '../tools/emailTools.js';
 
 export const authRouter = Router();
 
+// Limites por IP. Sin esto, alguien podria probar contraseñas por fuerza bruta
+// en /login, o inundar la bandeja de Adrian con solicitudes falsas de reset.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -84,6 +86,8 @@ authRouter.post('/auth/request-reset', resetLimiter, async (req, res) => {
       normalizedEmail
     ]);
 
+    // Respondemos igual exista o no el email: no revelamos que direcciones
+    // estan registradas.
     if (rows.length > 0) {
       await sendPasswordResetNotification(normalizedEmail);
     }

@@ -10,6 +10,12 @@ dotenv.config();
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+// gemini-2.5-flash fue retirado para cuentas nuevas; gemini-3.6-flash es el modelo
+// estable recomendado actualmente (ver ai.google.dev/gemini-api/docs/changelog).
+// gemini-3.5-flash-lite: el modelo mas rapido y barato del catalogo actual de Google,
+// pensado especificamente para tareas de "agentic search" y decidir que herramienta usar
+// (justo lo que hace este bucle). gemini-3.6-flash sigue disponible si notas que la calidad
+// de las respuestas baja demasiado - basta con cambiar esta constante.
 const MODEL = 'gemini-3.5-flash-lite';
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -22,7 +28,7 @@ function buildSystemInstruction(): string {
     day: 'numeric'
   });
 
-    return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
+  return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
 para crear, listar, buscar (por texto o por rango de fechas), completar, actualizar, eliminar,
 aplazar (snooze_task) y priorizar tareas, para consultar estadisticas rapidas (get_task_stats),
 para consultar PRs e issues abiertos en repositorios de GitHub (necesitas que el usuario indique
@@ -54,7 +60,7 @@ ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
 // espera los mismos campos pero con el "type" en mayusculas (su enum interno Type.STRING,
 // Type.OBJECT...). Este adaptador traduce uno a otro sin tocar taskTools.ts: si mañana
 // cambias de proveedor otra vez, la logica de negocio de las herramientas no se mueve.
-function toGeminiSchema(schema: any): any {
+export function toGeminiSchema(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
   const { type, properties, items, ...rest } = schema;
   const converted: any = { ...rest };
@@ -77,8 +83,6 @@ const allToolDefinitions = [
 const githubToolNames = new Set<string>(githubToolDefinitions.map((t) => t.name));
 const emailToolNames = new Set<string>(emailToolDefinitions.map((t) => t.name));
 const settingsToolNames = new Set<string>(settingsToolDefinitions.map((t) => t.name));
-
-
 
 const functionDeclarations = allToolDefinitions.map((tool) => ({
   name: tool.name,
@@ -103,6 +107,7 @@ export async function runAgent(
   userId: number,
   onChunk?: (text: string) => void
 ): Promise<string> {
+  // Gemini usa role 'model' donde Anthropic/OpenAI usan 'assistant'.
   const contents: Content[] = history.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }]
@@ -120,6 +125,9 @@ export async function runAgent(
       }
     });
 
+    // Acumulamos todas las parts de este turno segun van llegando. El texto se
+    // reenvia al momento via onChunk; las functionCall no se streamean por partes,
+    // llegan enteras en un unico chunk.
     const turnParts: Part[] = [];
 
     for await (const chunk of stream) {
@@ -139,6 +147,11 @@ export async function runAgent(
       return fullText;
     }
 
+    // Los modelos Gemini 3.x a veces no generan el thought_signature correctamente
+    // para la 2a funcion en adelante cuando piden varias herramientas en el mismo turno
+    // (bug conocido del lado de Google, ver ai.google.dev/gemini-api/docs/thought-signatures).
+    // Para evitarlo, procesamos una unica herramienta por turno: si el modelo pidio varias,
+    // las demas las volvera a pedir en la siguiente vuelta del bucle.
     const callPart = functionCallParts[0];
 
     if (!callPart.thoughtSignature) {

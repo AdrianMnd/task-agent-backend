@@ -144,6 +144,22 @@ npm run migrate        # aplica todas las migraciones en orden
 npm run dev
 ```
 
+## Testing
+
+```bash
+npm test
+```
+
+90 tests con Vitest + Supertest, sin necesitar una base de datos ni credenciales reales:
+Postgres (`pool.query`), la API de GitHub (`fetch`), Resend y el SDK de Gemini se mockean
+en cada archivo de test. Cobertura completa: las 17 herramientas del agente
+(`taskTools`, `githubTools`, `emailTools`, `settingsTools`), el middleware JWT, el
+conversor de esquemas de `agentLoop.ts`, y las 5 rutas (incluyendo el streaming real de
+`/chat`, probado extremo a extremo con Supertest leyendo el body como texto).
+
+Los tests viven en carpetas `__tests__/` junto a cada módulo, y están excluidos del build
+de producción (`tsconfig.json`).
+
 ## Despliegue
 
 - **Backend**: Render (Web Service), auto-deploy en `master`.

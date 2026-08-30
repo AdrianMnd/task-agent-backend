@@ -1,6 +1,8 @@
 import { pool } from '../db.js';
 import type { Task } from '../types.js';
 
+// Definiciones de herramientas en formato Anthropic tool-use.
+// El modelo decide cuál llamar y con qué argumentos según la conversación.
 export const taskToolDefinitions = [
   {
     name: 'create_task',
@@ -109,6 +111,9 @@ export const taskToolDefinitions = [
   }
 ] as const;
 
+// El "userId" NUNCA viene del modelo ni de "input": siempre se lo pasa agentLoop.ts,
+// que a su vez lo recibe del middleware de autenticacion (ver middleware/auth.ts).
+// Las definiciones de herramientas (lo que ve el modelo) no incluyen user_id a proposito.
 export async function executeTaskTool(name: string, input: any, userId: number): Promise<unknown> {
   switch (name) {
     case 'create_task': {
@@ -133,6 +138,8 @@ export async function executeTaskTool(name: string, input: any, userId: number):
       return rows[0] ?? { error: `No existe tarea con id ${input.id}` };
     }
     case 'update_task': {
+      // COALESCE mantiene el valor actual para cualquier campo que no venga en el input,
+      // asi el modelo solo tiene que mandar lo que realmente cambia.
       const { rows } = await pool.query<Task>(
         `UPDATE tasks
          SET title = COALESCE($1, title),
@@ -168,6 +175,7 @@ export async function executeTaskTool(name: string, input: any, userId: number):
       return rows;
     }
     case 'search_tasks_by_date': {
+      // Rango de fechas construido dinamicamente: ambos extremos son opcionales.
       const conditions = ['user_id = $1'];
       const params: any[] = [userId];
       if (input.from_date) {
