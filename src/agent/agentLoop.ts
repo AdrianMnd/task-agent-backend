@@ -10,6 +10,12 @@ dotenv.config();
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+// gemini-2.5-flash fue retirado para cuentas nuevas; gemini-3.6-flash es el modelo
+// estable recomendado actualmente (ver ai.google.dev/gemini-api/docs/changelog).
+// gemini-3.5-flash-lite: el modelo mas rapido y barato del catalogo actual de Google,
+// pensado especificamente para tareas de "agentic search" y decidir que herramienta usar
+// (justo lo que hace este bucle). gemini-3.6-flash sigue disponible si notas que la calidad
+// de las respuestas baja demasiado - basta con cambiar esta constante.
 const MODEL = 'gemini-3.5-flash-lite';
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -22,31 +28,12 @@ function buildSystemInstruction(): string {
     day: 'numeric'
   });
 
-    return `Hoy es ${today}. Eres un asistente de gestion de tareas. Tienes acceso a herramientas
-para crear, listar, buscar (por texto o por rango de fechas), completar, actualizar, eliminar,
-aplazar (snooze_task) y priorizar tareas, para consultar estadisticas rapidas (get_task_stats),
-para consultar PRs e issues abiertos en repositorios de GitHub (necesitas que el usuario indique
-el repo en formato owner/repo), para comentar en un PR, abrir un PR, crear un issue y cerrar un
-issue (NUNCA cerrar ni fusionar un PR, esas acciones las hace el usuario a mano), para enviar un
-recordatorio por email con las tareas pendientes cuando el usuario lo pida, y para cambiar con
-cuantos dias de antelacion se consideran urgentes las tareas (set_reminder_window), tanto para el
-recordatorio automatico diario como para el que se pide por chat. Comentar en un PR, abrir un PR,
-crear un issue o cerrar un issue son acciones visibles en un repositorio real: NUNCA llames a
-comment_on_pr, open_github_pr, create_github_issue ni close_github_issue en el mismo turno en que
-el usuario lo pida. Primero responde con el
-detalle exacto de lo que vas a hacer (el texto del comentario, o el titulo/rama origen/rama
-destino del PR, o el titulo/descripcion del issue) y pregunta si lo confirma. Solo llama a la
-herramienta cuando el usuario confirme explicitamente en un mensaje posterior. Borrar una
-tarea es irreversible: NUNCA llames a delete_task en el mismo turno en que el usuario pide borrar
-algo. Primero identifica la tarea (usando list_tasks si hace falta) y responde con texto normal
-preguntando "¿Confirmas que quieres borrar la tarea '<titulo>'?". Solo llama a delete_task cuando
-el usuario confirme explicitamente en un mensaje posterior. Si el usuario pide que el recordatorio
-incluya informacion adicional (por ejemplo PRs de un repositorio), consulta
-primero la herramienta correspondiente y pasa un resumen breve en HTML simple como
-"additional_notes" al llamar a send_reminder_email. Cuando el usuario mencione fechas relativas
-como "mañana", "la semana que viene" o "el viernes", calcula la fecha exacta en formato YYYY-MM-DD
-usando la fecha de hoy como referencia. Usa las herramientas cuando el usuario lo pida o cuando
-ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
+  return `Hoy es ${today}. Eres un asistente de gestion de tareas con herramientas para
+    tareas, GitHub y recordatorios. Antes de llamar a delete_task, comment_on_pr, open_github_pr,
+    create_github_issue o close_github_issue: describe la accion exacta y espera confirmacion
+    explicita del usuario en un mensaje posterior, nunca en el mismo turno en que se pide. Nunca
+    cierres ni fusiones un PR. Para fechas relativas ("mañana", "el viernes"), calcula la fecha
+    exacta en formato YYYY-MM-DD usando hoy como referencia. Se breve y responde en español.`;
 }
 
 // taskTools.ts define los esquemas en JSON Schema "de libro" (type: 'string', 'object'...),
@@ -54,7 +41,7 @@ ayude a responder mejor. Se breve y directo en tus respuestas, en español.`;
 // espera los mismos campos pero con el "type" en mayusculas (su enum interno Type.STRING,
 // Type.OBJECT...). Este adaptador traduce uno a otro sin tocar taskTools.ts: si mañana
 // cambias de proveedor otra vez, la logica de negocio de las herramientas no se mueve.
-function toGeminiSchema(schema: any): any {
+export function toGeminiSchema(schema: any): any {
   if (!schema || typeof schema !== 'object') return schema;
   const { type, properties, items, ...rest } = schema;
   const converted: any = { ...rest };
@@ -77,8 +64,6 @@ const allToolDefinitions = [
 const githubToolNames = new Set<string>(githubToolDefinitions.map((t) => t.name));
 const emailToolNames = new Set<string>(emailToolDefinitions.map((t) => t.name));
 const settingsToolNames = new Set<string>(settingsToolDefinitions.map((t) => t.name));
-
-
 
 const functionDeclarations = allToolDefinitions.map((tool) => ({
   name: tool.name,
@@ -103,6 +88,7 @@ export async function runAgent(
   userId: number,
   onChunk?: (text: string) => void
 ): Promise<string> {
+  // Gemini usa role 'model' donde Anthropic/OpenAI usan 'assistant'.
   const contents: Content[] = history.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }]
@@ -120,6 +106,9 @@ export async function runAgent(
       }
     });
 
+    // Acumulamos todas las parts de este turno segun van llegando. El texto se
+    // reenvia al momento via onChunk; las functionCall no se streamean por partes,
+    // llegan enteras en un unico chunk.
     const turnParts: Part[] = [];
 
     for await (const chunk of stream) {
@@ -139,6 +128,11 @@ export async function runAgent(
       return fullText;
     }
 
+    // Los modelos Gemini 3.x a veces no generan el thought_signature correctamente
+    // para la 2a funcion en adelante cuando piden varias herramientas en el mismo turno
+    // (bug conocido del lado de Google, ver ai.google.dev/gemini-api/docs/thought-signatures).
+    // Para evitarlo, procesamos una unica herramienta por turno: si el modelo pidio varias,
+    // las demas las volvera a pedir en la siguiente vuelta del bucle.
     const callPart = functionCallParts[0];
 
     if (!callPart.thoughtSignature) {

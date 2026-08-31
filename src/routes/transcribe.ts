@@ -6,6 +6,11 @@ export const transcribeRouter = Router();
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+// Transcribe audio con Gemini en vez de con el reconocimiento de voz del navegador.
+// Esto funciona igual en cualquier navegador (Chrome, Brave, Firefox...) porque no
+// depende de ningun servicio propietario del fabricante del navegador: el audio
+// viaja a nuestro backend y de ahi a la API de Gemini, igual que cualquier otro
+// mensaje del chat.
 transcribeRouter.post('/transcribe', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { audio, mimeType } = req.body ?? {};

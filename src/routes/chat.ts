@@ -6,7 +6,11 @@ import type { ChatMessage } from '../types.js';
 
 export const chatRouter = Router();
 
-const MAX_HISTORY_MESSAGES = 15;
+// Limite de mensajes que se envian al modelo en cada peticion. Sin esto, una
+// conversacion muy larga acabaria mandando cientos de mensajes en cada turno,
+// disparando tanto el tiempo de respuesta como el coste. El historial completo
+// se sigue guardando en la BD; esto solo limita lo que se le manda a Gemini.
+const MAX_HISTORY_MESSAGES = 10;
 
 chatRouter.get('/messages', requireAuth, async (req: AuthRequest, res) => {
   try {
@@ -56,6 +60,10 @@ chatRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
       message
     ]);
 
+    // Streaming de texto plano: cada trozo que genera Gemini se escribe directamente
+    // a la respuesta, en vez de esperar a tener el texto completo. X-Accel-Buffering
+    // evita que proxies delante del backend (comunes en PaaS como Render) bufferen
+    // toda la respuesta antes de mandarla, lo que anularia el streaming.
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Accel-Buffering', 'no');

@@ -116,6 +116,24 @@ export async function sendTaskReminderEmail(options: ReminderOptions): Promise<R
   return { sent: true, task_count: rows.length, email_id: data?.id };
 }
 
+export async function executeEmailTool(name: string, input: any, userId: number): Promise<unknown> {
+  switch (name) {
+    case 'send_reminder_email':
+      return sendTaskReminderEmail({
+        userId,
+        onlyUrgent: Boolean(input?.only_urgent),
+        additionalNotes: input?.additional_notes
+      });
+    default:
+      return { error: `Herramienta de email desconocida: ${name}` };
+  }
+}
+
+// Como con los recordatorios, Resend (sin dominio verificado) solo puede enviar a
+// REMINDER_EMAIL. Por eso el flujo de "olvide mi contraseña" no manda un enlace al
+// usuario que lo pide: le avisa a Adrian, que ejecuta el script reset-password a mano
+// y le comunica la nueva contraseña al usuario por otro canal. No ideal, pero honesto
+// sobre la limitacion en vez de fingir un flujo automatico que no puede funcionar.
 export async function sendPasswordResetNotification(userEmail: string): Promise<void> {
   if (!process.env.RESEND_API_KEY || !REMINDER_EMAIL) {
     console.error('No se pudo notificar la solicitud de reset: falta RESEND_API_KEY o REMINDER_EMAIL');
@@ -132,17 +150,4 @@ export async function sendPasswordResetNotification(userEmail: string): Promise<
       <p>Y comunícasela al usuario por otro canal.</p>
     `
   });
-}
-
-export async function executeEmailTool(name: string, input: any, userId: number): Promise<unknown> {
-  switch (name) {
-    case 'send_reminder_email':
-      return sendTaskReminderEmail({
-        userId,
-        onlyUrgent: Boolean(input?.only_urgent),
-        additionalNotes: input?.additional_notes
-      });
-    default:
-      return { error: `Herramienta de email desconocida: ${name}` };
-  }
 }

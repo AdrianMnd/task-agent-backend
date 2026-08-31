@@ -22,6 +22,7 @@ export const settingsToolDefinitions = [
 export async function executeSettingsTool(name: string, input: any, userId: number): Promise<unknown> {
   switch (name) {
     case 'set_reminder_window': {
+      // Clamp entre 1 y 60 dias: evita valores absurdos (0, negativos, o "avisame con 400 dias").
       const days = Math.max(1, Math.min(60, Math.round(input.days_ahead)));
       await pool.query(`UPDATE users SET reminder_days_ahead = $1 WHERE id = $2`, [days, userId]);
       return { updated: true, days_ahead: days };

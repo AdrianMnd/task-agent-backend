@@ -60,7 +60,7 @@ export const githubToolDefinitions = [
       required: ['repo', 'head', 'title']
     }
   },
-    {
+  {
     name: 'create_github_issue',
     description:
       'Crea un issue en un repositorio de GitHub. Usa esto solo despues de que el usuario ' +
@@ -75,7 +75,7 @@ export const githubToolDefinitions = [
       required: ['repo', 'title']
     }
   },
-    {
+  {
     name: 'close_github_issue',
     description:
       'Cierra un issue de GitHub (no un PR: si el numero indicado pertenece a un PR, esta ' +
@@ -133,6 +133,8 @@ export async function executeGithubTool(name: string, input: any): Promise<unkno
         return { error: `GitHub API error: ${res.status} ${res.statusText}` };
       }
 
+      // La API de GitHub trata los PRs como un tipo de issue; los filtramos para
+      // no duplicar lo que ya devuelve list_github_prs.
       const issues = (await res.json()) as any[];
       return issues
         .filter((issue) => !issue.pull_request)
@@ -146,6 +148,7 @@ export async function executeGithubTool(name: string, input: any): Promise<unkno
     }
     case 'comment_on_pr': {
       const { repo, pr_number, body } = input;
+      // GitHub trata los comentarios de PR como comentarios de issue a nivel de API.
       const res = await fetch(`https://api.github.com/repos/${repo}/issues/${pr_number}/comments`, {
         method: 'POST',
         headers: {
@@ -185,7 +188,7 @@ export async function executeGithubTool(name: string, input: any): Promise<unkno
       const pr = (await res.json()) as any;
       return { opened: true, number: pr.number, url: pr.html_url };
     }
-        case 'create_github_issue': {
+    case 'create_github_issue': {
       const { repo, title } = input;
       const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
         method: 'POST',
@@ -205,9 +208,12 @@ export async function executeGithubTool(name: string, input: any): Promise<unkno
       const issue = (await res.json()) as any;
       return { created: true, number: issue.number, url: issue.html_url };
     }
-        case 'close_github_issue': {
+    case 'close_github_issue': {
       const { repo, issue_number } = input;
 
+      // Comprobacion de seguridad: los issues y los PRs comparten numeracion y el mismo
+      // endpoint en la API de GitHub. Nos aseguramos de que es un issue de verdad antes
+      // de tocar nada, para que esta herramienta nunca pueda cerrar un PR por error.
       const checkRes = await fetch(`https://api.github.com/repos/${repo}/issues/${issue_number}`, {
         headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' }
       });
