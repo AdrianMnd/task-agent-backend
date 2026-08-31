@@ -172,4 +172,7 @@ de producción (`tsconfig.json`).
   (`REMINDER_EMAIL`). Esto afecta a los recordatorios (llegan solo al operador) y al reset
   de contraseña (manual en vez de self-service). El código ya está preparado para escalar
   a multiusuario real en cuanto se verifique un dominio propio.
-- **Sin tests automatizados todavía** (pendiente, próxima iteración del proyecto).
+
+## Licencia
+
+ISC — ver [LICENSE](./LICENSE).
