@@ -10,7 +10,7 @@ export const chatRouter = Router();
 // conversacion muy larga acabaria mandando cientos de mensajes en cada turno,
 // disparando tanto el tiempo de respuesta como el coste. El historial completo
 // se sigue guardando en la BD; esto solo limita lo que se le manda a Gemini.
-const MAX_HISTORY_MESSAGES = 15;
+const MAX_HISTORY_MESSAGES = 10;
 
 chatRouter.get('/messages', requireAuth, async (req: AuthRequest, res) => {
   try {
